@@ -1,4 +1,4 @@
-package eflag
+package ecfg
 
 type option uint64
 

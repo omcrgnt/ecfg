@@ -1,4 +1,4 @@
-package eflag
+package ecfg
 
 import (
 	"unsafe"
