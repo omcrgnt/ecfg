@@ -6,55 +6,44 @@ import (
 	"strconv"
 )
 
-// NodeKind определяет тип узла в иерархии (структура, коллекция или значение)
 type NodeKind int
 
 const (
 	KindStruct NodeKind = iota
 	KindSlice
 	KindMap
-	KindLeaf // Конечное значение (int, string, time.Duration и т.д.)
 )
 
-// NodeInfo несет информацию об узле для хуков OnEnter/OnExit
 type NodeInfo struct {
-	Name string            // Имя поля, индекс слайса "0" или ключ мапы
-	Kind NodeKind          // Тип узла
-	Tag  reflect.StructTag // Теги поля (если узел является полем структуры)
+	Name string
+	Kind NodeKind
+	Tag  reflect.StructTag
 }
 
-// FieldContext содержит данные для финального колбэка обработки значения
 type FieldContext struct {
-	Value reflect.Value       // Значение, в которое можно писать
-	Field reflect.StructField // Метаданные поля (имя, теги, тип)
+	Value reflect.Value
+	Field reflect.StructField
 }
 
-// WalkFunc — колбэк для обработки конечных значений ("листьев")
 type WalkFunc func(ctx FieldContext) error
 
-// Walker — основной объект обхода
+// NodeHook дает полный контроль над обходом контейнера.
+// next() запускает обход внутренностей этого узла.
+type NodeHook func(info NodeInfo, next func() error) error
+
 type Walker struct {
 	initNilPointers bool
-	onEnter         func(NodeInfo)
-	onExit          func(NodeInfo)
+	nodeHook        NodeHook
 }
 
 type Option func(*Walker)
 
-// WithInitNilPointers включает автоматическую аллокацию памяти для nil-указателей
 func WithInitNilPointers() Option {
-	return func(w *Walker) {
-		w.initNilPointers = true
-	}
+	return func(w *Walker) { w.initNilPointers = true }
 }
 
-// Опции для настройки хуков
-func WithOnEnter(fn func(NodeInfo)) Option {
-	return func(w *Walker) { w.onEnter = fn }
-}
-
-func WithOnExit(fn func(NodeInfo)) Option {
-	return func(w *Walker) { w.onExit = fn }
+func WithNodeHook(hook NodeHook) Option {
+	return func(w *Walker) { w.nodeHook = hook }
 }
 
 func New(opts ...Option) *Walker {
@@ -65,24 +54,15 @@ func New(opts ...Option) *Walker {
 	return w
 }
 
-// Process — Generic-хелпер для создания и обхода нового экземпляра типа T
-func Process[T any](w *Walker, fn WalkFunc) (*T, error) {
-	var target T
-	val := reflect.ValueOf(&target).Elem()
-	if err := w.Walk(val, fn); err != nil {
-		return nil, err
-	}
-	return &target, nil
-}
-
-// Walk запускает рекурсивный обход переданного значения
 func (w *Walker) Walk(v reflect.Value, fn WalkFunc) error {
+	if v.Kind() != reflect.Pointer && !v.CanAddr() {
+		return fmt.Errorf("walker: expected pointer or addressable value, got %v", v.Kind())
+	}
 	return w.recursiveWalk(v, reflect.StructField{}, fn)
 }
 
 func (w *Walker) recursiveWalk(v reflect.Value, field reflect.StructField, fn WalkFunc) error {
-	// 1. Обработка указателей
-	if v.Kind() == reflect.Pointer {
+	if v.Kind() == reflect.Ptr {
 		if v.IsNil() {
 			if !w.initNilPointers {
 				return nil
@@ -94,7 +74,6 @@ func (w *Walker) recursiveWalk(v reflect.Value, field reflect.StructField, fn Wa
 		return w.recursiveWalk(v.Elem(), field, fn)
 	}
 
-	// 2. Обработка контейнеров и листьев
 	switch v.Kind() {
 	case reflect.Struct:
 		t := v.Type()
@@ -105,84 +84,74 @@ func (w *Walker) recursiveWalk(v reflect.Value, field reflect.StructField, fn Wa
 				continue
 			}
 
-			info := NodeInfo{Name: f.Name, Kind: KindStruct, Tag: f.Tag}
-
-			isCont := isContainer(fv)
-			if isCont {
-				w.enter(info)
+			next := func() error {
+				return w.recursiveWalk(fv, f, fn)
 			}
 
-			if err := w.recursiveWalk(fv, f, fn); err != nil {
-				return err
-			}
-
-			if isCont {
-				w.exit(info)
+			switch isContainer(fv) && w.nodeHook != nil {
+			case true:
+				info := NodeInfo{Name: f.Name, Kind: KindStruct, Tag: f.Tag}
+				if err := w.nodeHook(info, next); err != nil {
+					return err
+				}
+			default:
+				if err := next(); err != nil {
+					return err
+				}
 			}
 		}
 
 	case reflect.Slice, reflect.Array:
 		for i := 0; i < v.Len(); i++ {
-			info := NodeInfo{
-				Name: strconv.Itoa(i),
-				Kind: KindSlice,
+			info := NodeInfo{Name: strconv.Itoa(i), Kind: KindSlice}
+
+			next := func() error {
+				return w.recursiveWalk(v.Index(i), reflect.StructField{}, fn)
 			}
 
-			w.enter(info)
-
-			if err := w.recursiveWalk(v.Index(i), field, fn); err != nil {
-				return err
+			switch w.nodeHook != nil {
+			case true:
+				if err := w.nodeHook(info, next); err != nil {
+					return err
+				}
+			default:
+				if err := next(); err != nil {
+					return err
+				}
 			}
-
-			w.exit(info)
 		}
 
 	case reflect.Map:
 		iter := v.MapRange()
 		for iter.Next() {
-			info := NodeInfo{
-				Name: fmt.Sprintf("%v", iter.Key().Interface()),
-				Kind: KindMap,
+			keyStr := fmt.Sprintf("%v", iter.Key().Interface())
+			info := NodeInfo{Name: keyStr, Kind: KindMap}
+
+			next := func() error {
+				return w.recursiveWalk(iter.Value(), reflect.StructField{}, fn)
 			}
 
-			w.enter(info)
-
-			if err := w.recursiveWalk(iter.Value(), field, fn); err != nil {
-				return err
+			switch w.nodeHook != nil {
+			case true:
+				if err := w.nodeHook(info, next); err != nil {
+					return err
+				}
+			default:
+				if err := next(); err != nil {
+					return err
+				}
 			}
-
-			w.exit(info)
 		}
 
 	default:
-		// Конечное значение
-		return fn(FieldContext{
-			Value: v,
-			Field: field,
-		})
+		return fn(FieldContext{Value: v, Field: field})
 	}
-
 	return nil
 }
 
-// Вспомогательные методы, которые делают код чище
-func (w *Walker) enter(info NodeInfo) {
-	if w.onEnter != nil {
-		w.onEnter(info)
-	}
-}
-
-func (w *Walker) exit(info NodeInfo) {
-	if w.onExit != nil {
-		w.onExit(info)
-	}
-}
-
-// isContainer проверяет, является ли значение контейнером
 func isContainer(v reflect.Value) bool {
 	k := v.Kind()
-	if k == reflect.Pointer {
-		// Если указатель nil, проверяем тип, на который он указывает
+	if k == reflect.Ptr {
 		if v.IsNil() {
 			return isContainerType(v.Type().Elem().Kind())
 		}
@@ -191,7 +160,15 @@ func isContainer(v reflect.Value) bool {
 	return isContainerType(k)
 }
 
-// isContainerType проверяет сам Kind
 func isContainerType(k reflect.Kind) bool {
 	return k == reflect.Struct || k == reflect.Slice || k == reflect.Array || k == reflect.Map
+}
+
+func Process[T any](w *Walker, fn WalkFunc) (*T, error) {
+	var target T
+	val := reflect.ValueOf(&target).Elem()
+	if err := w.Walk(val, fn); err != nil {
+		return nil, err
+	}
+	return &target, nil
 }

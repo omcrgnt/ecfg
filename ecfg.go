@@ -1,99 +1,43 @@
 package ecfg
 
 import (
-	"errors"
 	"fmt"
-	"reflect"
 	"strings"
+
+	"github.com/omcrgnt/ecfg/pkg/walker"
 )
 
-func Parse(source any) error {
-	return parse(source)
-}
+func Parse[T any]() (*T, error) {
+	var path []string
 
-func parse(source any) error {
-	if err := checkSourceType(source); err != nil {
-		return errWrap(err)
-	}
+	w := walker.New(
+		walker.WithInitNilPointers(),
+		walker.WithOnEnter(func(info walker.NodeInfo) {
+			// Проверка для структур первого уровня
+			name := info.Tag.Get("ecfg")
+			if len(path) == 0 && name == "" {
+				// В реальном коде тут можно либо паниковать,
+				// либо прокидывать ошибку через состояние, если нужно
+				panic(fmt.Sprintf("field %s must have ecfg tag", info.Name))
+			}
 
-	if err := walkThroughStruct(source); err != nil {
-		return errWrap(err)
-	}
+			if name == "" {
+				name = info.Name
+			}
+			path = append(path, name)
+		}),
+		walker.WithOnExit(func(info walker.NodeInfo) {
+			path = path[:len(path)-1]
+		}),
+	)
 
-	return nil
-}
-
-const tagName = "ecfg"
-
-// source must be pointer to struct
-func walkThroughStruct(source any) error {
-	var typ = reflect.TypeOf(source)
-	var val = reflect.ValueOf(source)
-	if typ.Kind() == reflect.Pointer {
-		typ = typ.Elem()
-		val = val.Elem()
-	}
-
-	for i := range typ.NumField() {
-		var structField = typ.Field(i)
-		if !structField.IsExported() {
-			continue
+	return walker.Process[T](w, func(ctx walker.FieldContext) error {
+		// Проверка для "листьев" первого уровня
+		if len(path) == 0 && ctx.Field.Tag.Get("ecfg") == "" {
+			return fmt.Errorf("root field %s missing ecfg tag", ctx.Field.Name)
 		}
-		var envPrefix = strings.ToUpper(structField.Tag.Get(tagName))
-		if envPrefix == "" {
-			return errors.New("empsty ecfg tag")
-		}
-		visitField(structField, val.Field(i), envPrefix)
-	}
-	return nil
-}
 
-func visitField(structField reflect.StructField, value reflect.Value, envPrefix string) {
-	fmt.Printf("%#v %#v %#v\n", structField, value, envPrefix)
-	newIfNilPointer(structField, value)
-
-	switch structField.Type.Kind() {
-	case reflect.Invalid:
-	case reflect.Bool:
-	case reflect.Int:
-	case reflect.Int8:
-	case reflect.Int16:
-	case reflect.Int32:
-	case reflect.Int64:
-	case reflect.Uint:
-	case reflect.Uint8:
-	case reflect.Uint16:
-	case reflect.Uint32:
-	case reflect.Uint64:
-	case reflect.Uintptr:
-	case reflect.Float32:
-	case reflect.Float64:
-	case reflect.Complex64:
-	case reflect.Complex128:
-	case reflect.Array:
-	case reflect.Chan:
-	case reflect.Func:
-	case reflect.Interface:
-	case reflect.Map:
-	case reflect.Pointer:
-	case reflect.Slice:
-	case reflect.String:
-		fmt.Println("::::::::::::::::", structField)
-	case reflect.Struct:
-		walkThroughStruct(value.Addr())
-	case reflect.UnsafePointer:
-	default:
-	}
-
-}
-
-func newIfNilPointer(structField reflect.StructField, value reflect.Value) {
-	switch structField.Type.Kind() {
-	case reflect.Pointer:
-		if value.IsNil() {
-			value.Set(reflect.New(structField.Type.Elem()).Elem().Addr())
-		}
-	default:
-		fmt.Println("not ponter")
-	}
+		fmt.Println(strings.Join(path, "_"))
+		return nil
+	})
 }
