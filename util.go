@@ -1,115 +1,49 @@
 package ecfg
 
 import (
-	"os"
 	"reflect"
-	"strconv"
+	"regexp"
 	"strings"
-	"time"
-
-	"github.com/fatih/color"
 )
 
-func namespaceAdapt(namespace string) string {
-	if namespace != "" {
-		namespace += "-"
+func checkSourceType(t any) error {
+	if reflect.ValueOf(t).Kind() != reflect.Pointer || reflect.ValueOf(t).Elem().Kind() != reflect.Struct {
+		return ErrInvalidInput
 	}
-	return namespace
+	return nil
 }
 
-func getFlagName(namespace, flagName string) string {
-	return namespaceAdapt(namespace) + flagName
-}
-
-func getFlagNameColor(namespace, flagName string, option option) string {
-	flagName = namespaceAdapt(namespace) + flagName
-	if WithColor.isSet(option) {
-		flagName = color.RedString(flagName)
+func checkStructFieldType(t any) error {
+	if reflect.ValueOf(t).Elem().Kind() == reflect.Pointer {
+		return ErrInvalidInput
 	}
-	return flagName
+	return nil
 }
 
-func getUsage(flagUsage, flagName string, option option) string {
-	if flagUsage == "" {
-		flagUsage = "set " + flagName
-	}
+var (
+	// Регулярка для поиска границ слов в CamelCase (LoggerLevel -> Logger_Level)
+	matchFirstCap = regexp.MustCompile("(.)([A-Z][a-z]+)")
+	matchAllCap   = regexp.MustCompile("([a-z0-9])([A-Z])")
+)
 
-	// if WithColor.isSet(option) {
-	// 	flagUsage = color.GreenString(flagUsage)
-	// }
+// ToEnvName принимает части пути (напр. "Logger", "Level", "Value")
+// и превращает в "LOGGER_LEVEL"
+func ToEnvName(parts ...string) string {
+	var result []string
 
-	if WithEnv.isSet(option) {
-		flagUsage = "env: " + getEnvColor(flagName, option) + "\n" + flagUsage
-	}
-	return flagUsage
-}
-
-func getEnvColor(s string, option option) string {
-	env := "APP_" + strings.ReplaceAll(strings.ToUpper(s), "-", "_")
-	if WithColor.isSet(option) {
-		return color.CyanString(env)
-	}
-	return env
-}
-
-func getEnv(s string) string {
-	return "APP_" + strings.ReplaceAll(strings.ToUpper(s), "-", "_")
-}
-
-func getValueBool(t any, option option, flagName string) bool {
-	v := reflect.ValueOf(t).Bool()
-	if WithEnv.isSet(option) {
-		if value, ok := os.LookupEnv(getEnv(flagName)); ok {
-			if valueBool, err := strconv.ParseBool(value); err == nil {
-				v = valueBool
-			}
+	for _, part := range parts {
+		// 1. Игнорируем техническое поле "Value", которое часто используется в твоих Proto
+		if strings.ToLower(part) == "value" {
+			continue
 		}
-	}
-	return v
-}
 
-func getValueDuration(t any, option option, flagName string) time.Duration {
-	v := time.Duration(reflect.ValueOf(t).Int())
-	if WithEnv.isSet(option) {
-		if value, ok := os.LookupEnv(getEnv(flagName)); ok {
-			if valueBool, err := time.ParseDuration(value); err == nil {
-				v = valueBool
-			}
-		}
-	}
-	return v
-}
+		// 2. Превращаем CamelCase в snake_case (LoggerLevel -> logger_level)
+		snake := matchFirstCap.ReplaceAllString(part, "${1}_${2}")
+		snake = matchAllCap.ReplaceAllString(snake, "${1}_${2}")
 
-func getValueInt64(t any, option option, flagName string) int64 {
-	v := reflect.ValueOf(t).Int()
-	if WithEnv.isSet(option) {
-		if value, ok := os.LookupEnv(getEnv(flagName)); ok {
-			if valueBool, err := strconv.ParseInt(value, 10, 64); err == nil {
-				v = valueBool
-			}
-		}
+		result = append(result, strings.ToUpper(snake))
 	}
-	return v
-}
 
-func getValueFloat64(t any, option option, flagName string) float64 {
-	v := reflect.ValueOf(t).Float()
-	if WithEnv.isSet(option) {
-		if value, ok := os.LookupEnv(getEnv(flagName)); ok {
-			if valueBool, err := strconv.ParseFloat(value, 64); err == nil {
-				v = valueBool
-			}
-		}
-	}
-	return v
-}
-
-func getValueString(t any, option option, flagName string) string {
-	v := reflect.ValueOf(t).String()
-	if WithEnv.isSet(option) {
-		if value, ok := os.LookupEnv(getEnv(flagName)); ok {
-			v = value
-		}
-	}
-	return v
+	// 3. Склеиваем всё через подчеркивание
+	return strings.Join(result, "_")
 }
