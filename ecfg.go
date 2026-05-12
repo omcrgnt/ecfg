@@ -11,8 +11,26 @@ import (
 	"github.com/omcrgnt/ecfg/pkg/walker"
 )
 
-// Parse — основная точка входа. Создает и заполняет структуру типа T данными из ENV.
-func Parse[T any]() (*T, error) {
+// Настройки парсинга
+type options struct {
+	prefix string
+}
+
+type Option func(*options)
+
+// WithPrefix добавляет префикс ко всем переменным окружения (например, "APP_")
+func WithPrefix(p string) Option {
+	return func(o *options) {
+		o.prefix = strings.ToUpper(strings.TrimSuffix(p, "_"))
+	}
+}
+
+func Parse[T any](opts ...Option) (*T, error) {
+	cfgOpts := &options{}
+	for _, opt := range opts {
+		opt(cfgOpts)
+	}
+
 	var pathStack []string
 
 	w := walker.New(
@@ -20,32 +38,26 @@ func Parse[T any]() (*T, error) {
 		walker.WithNodeHook(func(info walker.NodeInfo, next func() error) error {
 			tag := info.Tag.Get("ecfg")
 
-			// ПРАВИЛО: На первом уровне (корень) тег 'ecfg' обязателен для структур
+			// Правило первого уровня (теперь учитываем, есть ли префикс)
 			if len(pathStack) == 0 && tag == "" {
 				return fmt.Errorf("ecfg: field %s at root must have 'ecfg' tag", info.Name)
 			}
 
-			// Определяем имя сегмента (тег или имя поля)
 			name := tag
 			if name == "" {
 				name = info.Name
 			}
 
-			// Управляем стэком пути
 			oldPath := pathStack
 			pathStack = append(pathStack, strings.ToUpper(name))
-
-			err := next() // Рекурсивный уход вглубь
-
-			pathStack = oldPath // Возврат стэка
+			err := next()
+			pathStack = oldPath
 			return err
 		}),
 	)
 
 	return walker.Process[T](w, func(ctx walker.FieldContext) error {
 		tag := ctx.Field.Tag.Get("ecfg")
-
-		// ПРАВИЛО: На первом уровне тег обязателен и для простых полей
 		if len(pathStack) == 0 && tag == "" {
 			return fmt.Errorf("ecfg: root field %s missing 'ecfg' tag", ctx.Field.Name)
 		}
@@ -55,19 +67,21 @@ func Parse[T any]() (*T, error) {
 			name = ctx.Field.Name
 		}
 
-		// Сборка финального ключа ENV
-		fullKey := strings.ToUpper(name)
-		if len(pathStack) > 0 {
-			fullKey = strings.Join(pathStack, "_") + "_" + fullKey
+		// Сборка ключа с учетом префикса
+		parts := make([]string, 0, len(pathStack)+2)
+		if cfgOpts.prefix != "" {
+			parts = append(parts, cfgOpts.prefix)
 		}
+		parts = append(parts, pathStack...)
+		parts = append(parts, strings.ToUpper(name))
 
-		// Читаем значение
+		fullKey := strings.Join(parts, "_")
+
 		val, ok := os.LookupEnv(fullKey)
 		if !ok || val == "" {
 			return nil
 		}
 
-		// Записываем значение в поле
 		return setFieldValue(ctx.Value, val)
 	})
 }
