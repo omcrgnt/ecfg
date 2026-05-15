@@ -70,12 +70,23 @@ func (f *typesField) IsProto() bool {
 	return false
 }
 func (f *typesField) GetProvider() (Provider, error) {
-	// Для AST/Types рекурсия проще: мы просто берем тип поля и строим новый провайдер
-	st, ok := f.f.Type().Underlying().(*types.Struct)
+	st, ok := structTypesType(f.f.Type())
 	if !ok {
-		return nil, fmt.Errorf("field is not a struct")
+		return nil, fmt.Errorf("walker: field %s is not a struct", f.f.Name())
 	}
-	return &typesProvider{st: st, structName: f.f.Type().String(), pkg: f.pkg}, nil
+	return &typesProvider{st: st, structName: types.TypeString(f.f.Type(), nil), pkg: f.pkg}, nil
+}
+
+func structTypesType(t types.Type) (*types.Struct, bool) {
+	for {
+		if ptr, ok := t.(*types.Pointer); ok {
+			t = ptr.Elem()
+			continue
+		}
+		break
+	}
+	st, ok := t.Underlying().(*types.Struct)
+	return st, ok
 }
 
 func underlyingKind(t types.Type) reflect.Kind {

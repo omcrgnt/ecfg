@@ -9,7 +9,6 @@ type Field interface {
 	IsStruct() bool
 	// IsProto возвращает true, если тип поля — протобаф-сообщение
 	IsProto() bool
-	// ParentValue() если нужен доступ к реальным данным (только для рефлексии)
 	Kind() reflect.Kind
 	GetProvider() (Provider, error)
 }
