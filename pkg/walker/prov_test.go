@@ -4,45 +4,33 @@ import (
 	"testing"
 
 	"github.com/omcrgnt/ecfg/internal/teststruct"
+	"github.com/stretchr/testify/require"
 )
 
-func TestProvidersParity(t *testing.T) {
+func TestProvidersParity_shallowRootFields(t *testing.T) {
 	pkgPath := "github.com/omcrgnt/ecfg/internal/teststruct"
 	structName := "Config"
 
-	rp, err := NewReflectProvider(teststruct.Config{})
-	if err != nil {
-		t.Fatalf("reflect provider: %v", err)
-	}
+	var cfg teststruct.Config
+	rp, err := NewReflectProvider(&cfg)
+	require.NoError(t, err)
 	rFields, err := rp.GetFields()
-	if err != nil {
-		t.Fatalf("reflect fields: %v", err)
-	}
+	require.NoError(t, err)
 
 	tp, err := NewTypesProvider(pkgPath, structName)
-	if err != nil {
-		t.Fatalf("types provider: %v", err)
-	}
+	require.NoError(t, err)
 	tFields, err := tp.GetFields()
-	if err != nil {
-		t.Fatalf("types fields: %v", err)
-	}
+	require.NoError(t, err)
 
-	if len(rFields) != len(tFields) {
-		t.Fatalf("parity error: reflect found %d fields, types found %d", len(rFields), len(tFields))
-	}
+	require.Len(t, tFields, len(rFields), "field count at Config root")
 
 	for i := range rFields {
-		if rFields[i].Name() != tFields[i].Name() {
-			t.Errorf("parity error at field %d: %s != %s", i, rFields[i].Name(), tFields[i].Name())
-		}
-		if rFields[i].Tag("ecfg") != tFields[i].Tag("ecfg") {
-			t.Errorf("parity error in tags for %s", rFields[i].Name())
-		}
+		require.Equal(t, rFields[i].Name(), tFields[i].Name(), "field name at index %d", i)
+		require.Equal(t, rFields[i].Tag("ecfg"), tFields[i].Tag("ecfg"), "ecfg tag for %s", rFields[i].Name())
 	}
 }
 
-func TestWalkProvider_Nested(t *testing.T) {
+func TestWalk_nested_reflect(t *testing.T) {
 	type Inner struct {
 		Key string `ecfg:"KEY"`
 	}
@@ -50,29 +38,85 @@ func TestWalkProvider_Nested(t *testing.T) {
 		Module Inner `ecfg:"MODULE"`
 	}
 
-	p, err := NewReflectProvider(Outer{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	outer := Outer{Module: Inner{Key: "secret"}}
+	p, err := NewReflectProvider(&outer)
+	require.NoError(t, err)
+
+	w := New()
+	err = w.Walk(p, func(f Field) error {
+		rv, sf, err := f.Value()
+		if err != nil {
+			return err
+		}
+		if sf.Name == "Key" {
+			require.Equal(t, "secret", rv.String())
+		}
+		return nil
+	})
+	require.NoError(t, err)
+}
+
+func TestWalk_ValueErrorOnTypesProvider(t *testing.T) {
+	p, err := NewTypesProvider("github.com/omcrgnt/ecfg/internal/teststruct", "Config")
+	require.NoError(t, err)
+
+	w := New()
+	err = w.Walk(p, func(f Field) error {
+		_, _, err := f.Value()
+		return err
+	})
+	require.ErrorIs(t, err, ErrNoRuntimeValue)
+}
+
+func TestWalk_types_sliceOfStruct(t *testing.T) {
+	p, err := NewTypesProvider("github.com/omcrgnt/ecfg/internal/teststruct", "Nested")
+	require.NoError(t, err)
 
 	var names []string
-	err = WalkProvider(p, func(f Field) error {
+	w := New()
+	err = w.Walk(p, func(f Field) error {
 		names = append(names, f.Name())
 		return nil
 	})
-	if err != nil {
-		t.Fatal(err)
+	require.NoError(t, err)
+	require.Equal(t, []string{"Items", "Key"}, names)
+}
+
+func TestElemProvider_notContainer(t *testing.T) {
+	var cfg teststruct.Config
+	p, err := NewReflectProvider(&cfg)
+	require.NoError(t, err)
+	fields, err := p.GetFields()
+	require.NoError(t, err)
+	_, err = fields[0].ElemProvider()
+	require.ErrorIs(t, err, ErrNotContainer)
+}
+
+func TestWalk_reflect_setValue(t *testing.T) {
+	type Inner struct {
+		N int
+	}
+	type Outer struct {
+		Items []Inner
 	}
 
-	want := []string{"Module", "Key"}
-	if len(names) != len(want) {
-		t.Fatalf("got %d fields %v, want %v", len(names), names, want)
-	}
-	for i, n := range want {
-		if names[i] != n {
-			t.Errorf("field %d: got %s, want %s", i, names[i], n)
+	outer := Outer{Items: []Inner{{}}}
+	p, err := NewReflectProvider(&outer)
+	require.NoError(t, err)
+
+	w := New()
+	err = w.Walk(p, func(f Field) error {
+		rv, sf, err := f.Value()
+		if err != nil {
+			return err
 		}
-	}
+		if sf.Name == "N" {
+			rv.SetInt(42)
+		}
+		return nil
+	})
+	require.NoError(t, err)
+	require.Equal(t, 42, outer.Items[0].N)
 }
 
 func TestReflectProvider_PointerStruct(t *testing.T) {
@@ -83,19 +127,14 @@ func TestReflectProvider_PointerStruct(t *testing.T) {
 		DB *Extra `ecfg:"DB"`
 	}
 
-	p, err := NewReflectProvider(Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	cfg := Config{DB: &Extra{}}
+	p, err := NewReflectProvider(&cfg)
+	require.NoError(t, err)
+
 	fields, err := p.GetFields()
-	if err != nil {
-		t.Fatal(err)
-	}
+	require.NoError(t, err)
+
 	sub, err := fields[0].GetProvider()
-	if err != nil {
-		t.Fatalf("GetProvider for *Extra: %v", err)
-	}
-	if sub.EntryName() != "Extra" {
-		t.Errorf("expected Extra, got %s", sub.EntryName())
-	}
+	require.NoError(t, err)
+	require.Equal(t, "Extra", sub.EntryName())
 }

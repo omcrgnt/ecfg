@@ -56,18 +56,27 @@ func Parse[T any](opts ...Option) (*T, error) {
 		}),
 	)
 
-	return walker.Process[T](w, func(ctx walker.FieldContext) error {
-		tag := ctx.Field.Tag.Get("ecfg")
+	var target T
+	p, err := walker.NewReflectProvider(&target)
+	if err != nil {
+		return nil, err
+	}
+	if err := w.Walk(p, func(f walker.Field) error {
+		rv, sf, err := f.Value()
+		if err != nil {
+			return err
+		}
+
+		tag := sf.Tag.Get("ecfg")
 		if len(pathStack) == 0 && tag == "" {
-			return fmt.Errorf("ecfg: root field %s missing 'ecfg' tag", ctx.Field.Name)
+			return fmt.Errorf("ecfg: root field %s missing 'ecfg' tag", sf.Name)
 		}
 
 		name := tag
 		if name == "" {
-			name = ctx.Field.Name
+			name = sf.Name
 		}
 
-		// Сборка ключа с учетом префикса
 		parts := make([]string, 0, len(pathStack)+2)
 		if cfgOpts.prefix != "" {
 			parts = append(parts, cfgOpts.prefix)
@@ -82,8 +91,11 @@ func Parse[T any](opts ...Option) (*T, error) {
 			return nil
 		}
 
-		return setFieldValue(ctx.Value, val)
-	})
+		return setFieldValue(rv, val)
+	}); err != nil {
+		return nil, err
+	}
+	return &target, nil
 }
 
 // setFieldValue конвертирует строку из ENV в тип поля структуры
