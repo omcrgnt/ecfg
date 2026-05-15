@@ -5,26 +5,29 @@ import (
 	"testing"
 
 	"github.com/omcrgnt/ecfg/internal/teststruct"
+	"github.com/stretchr/testify/require"
 )
 
-func TestReflectProvider(t *testing.T) {
-	cfg := teststruct.Config{}
-	p, err := NewReflectProvider(cfg)
-	if err != nil {
-		t.Fatalf("failed to create provider: %v", err)
-	}
+func TestNewReflectProvider_requiresPointer(t *testing.T) {
+	_, err := NewReflectProvider(teststruct.Config{})
+	require.ErrorIs(t, err, ErrPointerRequired)
+}
 
-	fields, _ := p.GetFields()
-	if len(fields) != 2 {
-		t.Errorf("expected 2 fields, got %d", len(fields))
-	}
+func TestReflectProvider(t *testing.T) {
+	var cfg teststruct.Config
+	p, err := NewReflectProvider(&cfg)
+	require.NoError(t, err)
+
+	fields, err := p.GetFields()
+	require.NoError(t, err)
+	require.Len(t, fields, 2)
 
 	f := fields[0]
-	if f.Name() != "Port" || f.Tag("ecfg") != "PORT" || f.Tag("usage") != "Server port" {
-		t.Errorf("unexpected field data: %+v", f)
-	}
+	require.Equal(t, "Port", f.Name())
+	require.Equal(t, "PORT", f.Tag("ecfg"))
+	require.Equal(t, "Server port", f.Tag("usage"))
+	require.Equal(t, reflect.Int, f.Kind())
 
-	if f.Kind() != reflect.Int {
-		t.Errorf("expected int kind, got %v", f.Kind())
-	}
+	_, _, err = f.Value()
+	require.NoError(t, err)
 }

@@ -14,6 +14,9 @@ type typesProvider struct {
 	pkg        *packages.Package
 }
 
+func (*typesProvider) schemaProvider() {}
+
+// NewTypesProvider loads a struct type from pkgPath via go/packages and returns a SchemaProvider.
 func NewTypesProvider(pkgPath, structName string) (Provider, error) {
 	cfg := &packages.Config{Mode: packages.NeedTypes | packages.NeedImports | packages.NeedDeps | packages.NeedSyntax | packages.NeedTypesInfo}
 	pkgs, err := packages.Load(cfg, pkgPath)
@@ -58,28 +61,86 @@ func (f *typesField) Kind() reflect.Kind {
 }
 func (f *typesField) IsStruct() bool { return f.Kind() == reflect.Struct }
 func (f *typesField) IsProto() bool {
-	named, ok := f.f.Type().(*types.Named)
-	if !ok {
-		return false
-	}
-	for i := 0; i < named.NumMethods(); i++ {
-		if named.Method(i).Name() == "ProtoMessage" {
-			return true
-		}
-	}
-	return false
+	return isProtoTypesType(f.f.Type())
 }
-func (f *typesField) GetProvider() (Provider, error) {
-	// Для AST/Types рекурсия проще: мы просто берем тип поля и строим новый провайдер
-	st, ok := f.f.Type().Underlying().(*types.Struct)
-	if !ok {
-		return nil, fmt.Errorf("field is not a struct")
-	}
-	return &typesProvider{st: st, structName: f.f.Type().String(), pkg: f.pkg}, nil
+func (f *typesField) Value() (reflect.Value, reflect.StructField, error) {
+	return reflect.Value{}, reflect.StructField{}, ErrNoRuntimeValue
 }
 
+func (f *typesField) GetProvider() (Provider, error) {
+	st, ok := structTypesType(f.f.Type())
+	if !ok {
+		return nil, fmt.Errorf("walker: field %s is not a struct", f.f.Name())
+	}
+	return &typesProvider{st: st, structName: types.TypeString(f.f.Type(), nil), pkg: f.pkg}, nil
+}
+
+func (f *typesField) ElemProvider() (Provider, error) {
+	st, named, ok := elemStructTypesNamed(f.f.Type())
+	if !ok {
+		return nil, ErrNotContainer
+	}
+	if isProtoTypesType(named) {
+		return nil, ErrNotContainer
+	}
+	name := named.Obj().Name()
+	if name == "" {
+		name = types.TypeString(named, nil)
+	}
+	return &typesProvider{st: st, structName: name, pkg: f.pkg}, nil
+}
+
+func elemStructTypesNamed(t types.Type) (*types.Struct, *types.Named, bool) {
+	t = types.Unalias(t)
+	for {
+		if ptr, ok := t.(*types.Pointer); ok {
+			t = ptr.Elem()
+			continue
+		}
+		break
+	}
+	switch ut := t.Underlying().(type) {
+	case *types.Slice:
+		t = ut.Elem()
+	case *types.Array:
+		t = ut.Elem()
+	case *types.Map:
+		t = ut.Elem()
+	default:
+		return nil, nil, false
+	}
+	for {
+		if ptr, ok := t.(*types.Pointer); ok {
+			t = ptr.Elem()
+			continue
+		}
+		break
+	}
+	named, ok := t.(*types.Named)
+	if !ok {
+		return nil, nil, false
+	}
+	st, ok := named.Underlying().(*types.Struct)
+	if !ok {
+		return nil, nil, false
+	}
+	return st, named, true
+}
+
+func structTypesType(t types.Type) (*types.Struct, bool) {
+	for {
+		if ptr, ok := t.(*types.Pointer); ok {
+			t = ptr.Elem()
+			continue
+		}
+		break
+	}
+	st, ok := t.Underlying().(*types.Struct)
+	return st, ok
+}
+
+// underlyingKind maps go/types to reflect.Kind, preserving int/uint width.
 func underlyingKind(t types.Type) reflect.Kind {
-	// 1. Разворачиваем указатели (учитываем многоуровневые типа ***int)
 	for {
 		if ptr, ok := t.Underlying().(*types.Pointer); ok {
 			t = ptr.Elem()
@@ -88,21 +149,9 @@ func underlyingKind(t types.Type) reflect.Kind {
 		break
 	}
 
-	// 2. Определяем Kind на основе Underlying типа
 	switch ut := t.Underlying().(type) {
 	case *types.Basic:
-		switch ut.Kind() {
-		case types.String:
-			return reflect.String
-		case types.Bool:
-			return reflect.Bool
-		case types.Int, types.Int8, types.Int16, types.Int32, types.Int64:
-			return reflect.Int // Для простоты сводим всё к Int
-		case types.Uint, types.Uint8, types.Uint16, types.Uint32, types.Uint64:
-			return reflect.Uint
-		case types.Float32, types.Float64:
-			return reflect.Float64
-		}
+		return basicKind(ut.Kind())
 	case *types.Struct:
 		return reflect.Struct
 	case *types.Slice:
@@ -111,7 +160,44 @@ func underlyingKind(t types.Type) reflect.Kind {
 		return reflect.Array
 	case *types.Map:
 		return reflect.Map
+	default:
+		return reflect.Invalid
 	}
+}
 
-	return reflect.Invalid
+func basicKind(k types.BasicKind) reflect.Kind {
+	switch k {
+	case types.Bool:
+		return reflect.Bool
+	case types.Int:
+		return reflect.Int
+	case types.Int8:
+		return reflect.Int8
+	case types.Int16:
+		return reflect.Int16
+	case types.Int32:
+		return reflect.Int32
+	case types.Int64:
+		return reflect.Int64
+	case types.Uint:
+		return reflect.Uint
+	case types.Uint8:
+		return reflect.Uint8
+	case types.Uint16:
+		return reflect.Uint16
+	case types.Uint32:
+		return reflect.Uint32
+	case types.Uint64:
+		return reflect.Uint64
+	case types.Float32:
+		return reflect.Float32
+	case types.Float64:
+		return reflect.Float64
+	case types.String:
+		return reflect.String
+	case types.UnsafePointer:
+		return reflect.UnsafePointer
+	default:
+		return reflect.Invalid
+	}
 }

@@ -19,7 +19,6 @@ func TestParse_Success(t *testing.T) {
 		DB      *Extra        `ecfg:"DATABASE"`
 	}
 
-	// Устанавливаем окружение
 	os.Setenv("APP", "test-app")
 	os.Setenv("TIMEOUT", "5s")
 	os.Setenv("DATABASE_ID", "42")
@@ -44,7 +43,7 @@ func TestParse_Success(t *testing.T) {
 func TestParse_ValidationErrors(t *testing.T) {
 	t.Run("missing ecfg tag at root", func(t *testing.T) {
 		type BadConfig struct {
-			NoTag string // Нет тега ecfg
+			NoTag string
 		}
 		_, err := ecfg.Parse[BadConfig]()
 		if err == nil {
@@ -69,7 +68,7 @@ func TestParse_ValidationErrors(t *testing.T) {
 		type Config struct {
 			TTL time.Duration `ecfg:"TTL"`
 		}
-		os.Setenv("TTL", "100 лет") // Невалидный формат для time.ParseDuration
+		os.Setenv("TTL", "100 лет")
 		defer os.Unsetenv("TTL")
 
 		_, err := ecfg.Parse[Config]()
@@ -84,13 +83,12 @@ func TestParse_NestedLogic(t *testing.T) {
 		Key string `ecfg:"KEY"`
 	}
 	type Mid struct {
-		Inner Deep // Без тега, должно взяться имя поля Inner
+		Inner Deep
 	}
 	type Root struct {
 		Module Mid `ecfg:"MODULE"`
 	}
 
-	// Путь должен быть MODULE_INNER_KEY
 	os.Setenv("MODULE_INNER_KEY", "secret")
 	defer os.Unsetenv("MODULE_INNER_KEY")
 
@@ -112,7 +110,6 @@ func TestParse_WithPrefix(t *testing.T) {
 	os.Setenv("MYAPP_PORT", "8080")
 	defer os.Unsetenv("MYAPP_PORT")
 
-	// Передаем опцию WithPrefix
 	cfg, err := ecfg.Parse[Config](ecfg.WithPrefix("MYAPP"))
 	if err != nil {
 		t.Fatal(err)
