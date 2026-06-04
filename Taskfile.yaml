@@ -4,6 +4,27 @@ tasks:
   test:
     desc: "Запуск Go тестов через Docker"
     cmds:
+      - task: docker-go
+        vars:
+          GO_CMD: go test -v ./...
+
+  bench:
+    desc: "Запуск Go бенчмарков через Docker"
+    cmds:
+      - task: docker-go
+        vars:
+          GO_CMD: 'sh -c "go test -run=^$$ -bench=. -benchmem ./..."'
+
+  mutest:
+    desc: "Mutation testing (mutest) через Docker"
+    cmds:
+      - task: docker-go
+        vars:
+          GO_CMD: 'sh -c "go install github.com/fchimpan/mutest@latest && /tmp/go-path/bin/mutest -threshold 65 -timeout 120s ./internal/ecfgtool/ ./pkg/walk/ ."'
+
+  docker-go:
+    internal: true
+    cmds:
       - |
         docker run --rm \
           -v "{{.USER_WORKING_DIR}}:/workspace" \
@@ -12,4 +33,4 @@ tasks:
           -e GOPATH=/tmp/go-path \
           --user $(id -u):$(id -g) \
           golang:alpine \
-          go test -v ./...
+          {{.GO_CMD}}
