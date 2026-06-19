@@ -4,9 +4,16 @@ go 1.26.2
 
 require (
 	buf.build/go/protovalidate v1.2.0
+	github.com/omcrgnt/builder v0.2.0
 	github.com/omcrgnt/proto/gen/go v0.3.0
+	github.com/omcrgnt/res v0.9.0
 	golang.org/x/tools v0.45.0
 	google.golang.org/protobuf v1.36.11
+)
+
+replace (
+	github.com/omcrgnt/builder => ../builder
+	github.com/omcrgnt/res => ../res
 )
 
 require (
@@ -17,7 +24,7 @@ require (
 	golang.org/x/exp v0.0.0-20250813145105-42675adae3e6 // indirect
 	golang.org/x/mod v0.36.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/text v0.28.0 // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20250811230008-5f3141c8851a // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20250811230008-5f3141c8851a // indirect
+	golang.org/x/text v0.37.0 // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20260526163538-3dc84a4a5aaa // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20260526163538-3dc84a4a5aaa // indirect
 )
