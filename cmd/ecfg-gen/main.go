@@ -1,4 +1,4 @@
-// Command ecfg-gen writes env.template from ecfg struct tags (offline, no ENV).
+// Command ecfg-gen writes .env.template and env.md from ecfg struct tags (offline, no ENV).
 package main
 
 import (
@@ -19,17 +19,26 @@ func run(args []string) int {
 	typeName := fs.String("type", "", "root config struct name (required)")
 	pkgPath := fs.String("pkg", "", "package import path (required)")
 	prefix := fs.String("prefix", "", "env key prefix")
-	outPath := fs.String("o", "env.template", "output file path")
+	templatePath := fs.String("template", "env.template", "output path for KEY= env file")
+	markdownPath := fs.String("md", "", "output path for env.md (usage docs)")
+	outPath := fs.String("o", "", "deprecated alias for -template")
 	fs.SetOutput(os.Stderr)
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 	if *typeName == "" || *pkgPath == "" {
-		fmt.Fprintln(os.Stderr, "usage: ecfg-gen -type AppConfig -pkg github.com/you/app/config [-prefix APP] [-o env.template]")
+		fmt.Fprintln(os.Stderr, "usage: ecfg-gen -type AppConfig -pkg github.com/you/app/config [-prefix APP] [-template env.template] [-md env.md]")
 		fs.PrintDefaults()
 		return 2
 	}
-	if err := gen.Run(*typeName, *pkgPath, *prefix, *outPath); err != nil {
+	tpl := *templatePath
+	if *outPath != "" {
+		tpl = *outPath
+	}
+	if err := gen.Run(*typeName, *pkgPath, *prefix, gen.Options{
+		TemplatePath: tpl,
+		MarkdownPath: *markdownPath,
+	}); err != nil {
 		log.Print(err)
 		return 1
 	}

@@ -1,6 +1,6 @@
 package ecfgtool
 
-// Usage provides human-readable hint text for env.template and validation errors.
+// Usage provides human-readable hint text for env.md and validation errors.
 type Usage interface {
 	Usage() string
 }

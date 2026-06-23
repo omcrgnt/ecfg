@@ -46,6 +46,29 @@ func TestResolveUsageInput_missing(t *testing.T) {
 	}
 }
 
+func TestResolveUsage_typesEngineProtoLeaf(t *testing.T) {
+	eng, err := walk.NewEngineTypes("github.com/omcrgnt/ecfg/internal/testdata", "ProtoCfg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fields, err := eng.Fields()
+	if err != nil {
+		t.Fatal(err)
+	}
+	child, err := eng.Child(fields[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	leafFields, err := child.Fields()
+	if err != nil {
+		t.Fatal(err)
+	}
+	text, err := resolveUsage(leafFields[0], true)
+	if err != nil || text == "" {
+		t.Fatalf("got %q %v", text, err)
+	}
+}
+
 func TestResolveUsage_typesEngineLeaf(t *testing.T) {
 	eng, err := walk.NewEngineTypes("github.com/omcrgnt/ecfg/internal/testdata", "AppConfig")
 	if err != nil {

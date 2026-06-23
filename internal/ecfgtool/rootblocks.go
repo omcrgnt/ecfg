@@ -7,39 +7,26 @@ import (
 	"github.com/omcrgnt/ecfg/pkg/walk"
 )
 
-type visitCtx struct {
-	walk      walk.VisitCtx
-	value     reflect.Value
-	envKey    string
-	fieldPath string
-	usageText string
-	rootGroup string
-	isProto   bool
-	isLeaf    bool
-}
-
-func traverse(engine walk.Engine, opts Options, visit func(visitCtx) error) error {
-	path := make([]string, 0, 8)
+// traverseRootBlocks walks ecfg-tagged first-level blocks. When eng supplies a builder
+// spec (or nested config block), rootSeg is the AppResources ecfg tag (e.g. APP, SERVICE_ITEM).
+func traverseRootBlocks(rootSeg, rootField string, eng walk.Engine, opts Options, visit func(visitCtx) error) error {
+	path := []string{rootSeg}
 	registry := newKeyRegistry()
+	const depthOffset = 1
 
 	walkOpts := walk.Options{
 		InitPointers: true,
 		AfterField: func(wctx walk.VisitCtx) {
-			if opts.SkipUntaggedRoot && wctx.Depth == 0 && parseEcfgTag(wctx.Field.Tag) == "" {
-				return
-			}
-			if len(path) > 0 {
+			if len(path) > 1 {
 				path = path[:len(path)-1]
 			}
 		},
 	}
-	return walk.StructWalk(engine, walkOpts, func(wctx walk.VisitCtx) error {
+	return walk.StructWalk(eng, walkOpts, func(wctx walk.VisitCtx) error {
 		f := wctx.Field
-		ecfgTag := parseEcfgTag(f.Tag)
-		if opts.SkipUntaggedRoot && wctx.Depth == 0 && ecfgTag == "" {
-			return walk.SkipDescend()
-		}
-		seg, err := segment(wctx.Depth, ecfgTag, f.Name)
+		wctx.Depth += depthOffset
+
+		seg, err := segment(wctx.Depth, parseEcfgTag(f.Tag), f.Name)
 		if err != nil {
 			return err
 		}
@@ -82,9 +69,7 @@ func traverse(engine walk.Engine, opts Options, visit func(visitCtx) error) erro
 				return err
 			}
 			vctx.usageText = usageText
-			if len(path) > 0 {
-				vctx.rootGroup = path[0]
-			}
+			vctx.rootGroup = rootSeg
 		}
 
 		if err := visit(vctx); err != nil {
@@ -98,27 +83,19 @@ func traverse(engine walk.Engine, opts Options, visit func(visitCtx) error) erro
 	})
 }
 
-func isProtoField(f walk.FieldDesc) bool {
-	if f.ReflectType != nil {
-		return isProtoMessage(f.ReflectType)
+func appResourcesStruct(v any) (reflect.Value, reflect.Type, error) {
+	if v == nil {
+		return reflect.Value{}, nil, fmt.Errorf("ecfg: nil app resources")
 	}
-	if f.TypesType != nil {
-		return isProtoTypesType(f.TypesType)
+	rv := reflect.ValueOf(v)
+	for rv.Kind() == reflect.Ptr {
+		if rv.IsNil() {
+			return reflect.Value{}, nil, fmt.Errorf("ecfg: nil app resources")
+		}
+		rv = rv.Elem()
 	}
-	return false
-}
-
-func joinFieldPath(path []string, field string) string {
-	if len(path) == 0 {
-		return field
+	if rv.Kind() != reflect.Struct {
+		return reflect.Value{}, nil, fmt.Errorf("ecfg: want struct, got %s", rv.Kind())
 	}
-	return fmt.Sprintf("%s.%s", joinFieldPathSegments(path), field)
-}
-
-func joinFieldPathSegments(path []string) string {
-	out := path[0]
-	for i := 1; i < len(path); i++ {
-		out += "." + path[i]
-	}
-	return out
+	return rv, rv.Type(), nil
 }

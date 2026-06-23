@@ -44,7 +44,7 @@ func resolveUsageInput(in usageInput) (string, error) {
 		if in.ProtoMsgType != nil {
 			return protoUsage(in.ProtoMsgType)
 		}
-		if named, ok := in.TypesType.(*types.Named); ok {
+		if named := typesNamed(in.TypesType); named != nil {
 			return protoUsageFromNamed(named)
 		}
 		return "", ErrMissingUsage
@@ -62,11 +62,37 @@ func protoUsageFromNamed(named *types.Named) (string, error) {
 	if named.Obj() == nil || named.Obj().Pkg() == nil {
 		return "", ErrMissingUsage
 	}
-	full := protoreflect.FullName(named.Obj().Pkg().Path() + "." + named.Obj().Name())
-	mt, err := protoregistry.GlobalTypes.FindMessageByName(full)
+	mt, err := protoMessageFromGoNamed(named)
 	if err != nil {
 		return "", ErrMissingUsage
 	}
+	return protoUsageFromMessageType(mt)
+}
+
+func protoMessageFromGoNamed(named *types.Named) (protoreflect.MessageType, error) {
+	if full, ok := protoFullNameFromGoNamed(named); ok {
+		if mt, err := protoregistry.GlobalTypes.FindMessageByName(full); err == nil {
+			return mt, nil
+		}
+	}
+	full := protoreflect.FullName(named.Obj().Pkg().Path() + "." + named.Obj().Name())
+	return protoregistry.GlobalTypes.FindMessageByName(full)
+}
+
+// protoFullNameFromGoNamed maps org generated Go import paths to protobuf message names.
+// e.g. github.com/omcrgnt/proto/gen/go/common/v1 + Label → common.v1.Label
+func protoFullNameFromGoNamed(named *types.Named) (protoreflect.FullName, bool) {
+	const marker = "/gen/go/"
+	path := named.Obj().Pkg().Path()
+	i := strings.Index(path, marker)
+	if i < 0 {
+		return "", false
+	}
+	suffix := strings.ReplaceAll(path[i+len(marker):], "/", ".")
+	return protoreflect.FullName(suffix + "." + named.Obj().Name()), true
+}
+
+func protoUsageFromMessageType(mt protoreflect.MessageType) (string, error) {
 	fields := mt.Descriptor().Fields()
 	if fields.Len() != 1 || fields.Get(0).Name() != "value" {
 		return "", ErrInvalidProtoWrapper

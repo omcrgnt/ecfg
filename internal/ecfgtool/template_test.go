@@ -40,8 +40,52 @@ func TestCollectTemplateEntries_andWrite(t *testing.T) {
 	if !strings.Contains(s, "TEST_SERVER_LABEL=") {
 		t.Fatalf("body: %s", s)
 	}
-	if !strings.Contains(s, "# ") {
-		t.Fatalf("missing usage comment: %s", s)
+	if strings.Contains(s, "# ") {
+		t.Fatalf("env file must not contain usage comments: %s", s)
+	}
+}
+
+func TestWriteEnvMarkdown(t *testing.T) {
+	entries, err := CollectTemplateEntries(
+		"github.com/omcrgnt/ecfg/internal/testdata",
+		"MultiBlock",
+		"M",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "env.md")
+	if err := WriteEnvMarkdown(path, "M", entries); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(body)
+	if !strings.Contains(s, "# Environment configuration") {
+		t.Fatalf("body: %s", s)
+	}
+	if !strings.Contains(s, "| `M_SERVER_LABEL` |") {
+		t.Fatalf("missing table row: %s", s)
+	}
+	if !strings.Contains(s, "## SERVER") {
+		t.Fatalf("missing group heading: %s", s)
+	}
+}
+
+func TestCollectTemplateEntries_protoCfg(t *testing.T) {
+	entries, err := CollectTemplateEntries(
+		"github.com/omcrgnt/ecfg/internal/testdata",
+		"ProtoCfg",
+		"T",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].EnvKey != "T_SERVER_PORT" {
+		t.Fatalf("entries: %+v", entries)
 	}
 }
 

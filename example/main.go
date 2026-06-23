@@ -8,7 +8,7 @@ import (
 	"github.com/omcrgnt/ecfg/internal/testdata"
 )
 
-//go:generate go run github.com/omcrgnt/ecfg/cmd/ecfg-gen -type AppConfig -pkg github.com/omcrgnt/ecfg/internal/testdata -prefix APP -o env.template
+//go:generate go run github.com/omcrgnt/ecfg/cmd/ecfg-gen -type AppConfig -pkg github.com/omcrgnt/ecfg/internal/testdata -prefix APP -template env.template
 
 func main() {
 	cfg, err := ecfg.Parse[testdata.AppConfig](ecfg.WithPrefix("APP"))

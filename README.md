@@ -28,6 +28,8 @@ cfg, err := ecfg.Parse[AppConfig](ecfg.WithPrefix("MYAPP"))
 ```
 
 - Root struct fields need an `ecfg:"SEGMENT"` tag.
+- For **AppResources**: field is the **resource** ([BuildConfiger] or [NewResourceer]); env shape comes from `resource.BuildConfig()` spec ([item.Spec], [app.Spec], …). ecfg does not walk wire/resource fields.
+- For **direct config** (`ecfg.Parse[T]`, testdata): the root struct is the config and is walked as-is.
 - Nested blocks are one level deep (no nested struct blocks at depth 1).
 - Leaves are either a Go named type with `Usage()` and `Validate()`, or a proto wrapper with a single `value` field and `options.v1.usage`.
 - Every leaf must be set in the environment (non-empty).
@@ -42,7 +44,7 @@ go generate ./...
 go run github.com/omcrgnt/ecfg/cmd/ecfg-gen -type AppConfig -pkg ./config -prefix MYAPP
 ```
 
-Writes `env.template` with `# usage` lines and `KEY=` placeholders, grouped by root block.
+Writes `.env.template` (`KEY=` only) and optional `env.md` (usage tables), grouped by root ecfg block.
 
 ## Benchmarks
 

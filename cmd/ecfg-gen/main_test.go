@@ -20,7 +20,7 @@ func TestRun_success(t *testing.T) {
 		"-type", "AppConfig",
 		"-pkg", "github.com/omcrgnt/ecfg/internal/testdata",
 		"-prefix", "CLI",
-		"-o", out,
+		"-template", out,
 	})
 	if code != 0 {
 		t.Fatalf("exit code: %d", code)
