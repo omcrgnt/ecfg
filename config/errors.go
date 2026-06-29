@@ -1,4 +1,4 @@
-package ecfg
+package config
 
 import "github.com/omcrgnt/ecfg/internal/ecfgtool"
 
