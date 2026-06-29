@@ -3,8 +3,6 @@ package testdata
 import (
 	"fmt"
 	"time"
-
-	"github.com/omcrgnt/builder"
 )
 
 // AppResourcesFixture mimics an AppResources root for template and gen tests.
@@ -14,9 +12,13 @@ type AppResourcesFixture struct {
 	ServerHTTP  *WireServer  `ecfg:"SERVER_HTTP_ITEM"`
 }
 
+type configBuilder interface {
+	Build() (any, error)
+}
+
 type WireApp struct{}
 
-func (*WireApp) BuildConfig() (builder.Builder, error) {
+func (*WireApp) BuildConfig() (configBuilder, error) {
 	return appSpec{}, nil
 }
 
@@ -39,7 +41,7 @@ func (t shutdownTimeout) Validate() error {
 
 type WireService struct{}
 
-func (*WireService) BuildConfig() (builder.Builder, error) {
+func (*WireService) BuildConfig() (configBuilder, error) {
 	return serviceSpec{}, nil
 }
 
@@ -62,7 +64,7 @@ func (l maxListLen) Validate() error {
 
 type WireServer struct{}
 
-func (*WireServer) BuildConfig() (builder.Builder, error) {
+func (*WireServer) BuildConfig() (configBuilder, error) {
 	return serverSpec{}, nil
 }
 

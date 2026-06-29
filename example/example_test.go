@@ -3,13 +3,13 @@ package main_test
 import (
 	"testing"
 
-	"github.com/omcrgnt/ecfg"
+	"github.com/omcrgnt/ecfg/config"
 	"github.com/omcrgnt/ecfg/internal/testdata"
 )
 
 func TestExampleParse(t *testing.T) {
 	t.Setenv("APP_SERVER_LABEL", "demo")
-	cfg, err := ecfg.Parse[testdata.AppConfig](ecfg.WithPrefix("APP"))
+	cfg, err := config.Parse[testdata.AppConfig](config.WithPrefix("APP"))
 	if err != nil {
 		t.Fatal(err)
 	}

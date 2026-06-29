@@ -4,18 +4,27 @@ Typed configuration from environment variables for Go.
 
 ## Public API
 
-### `ecfg` (primary)
+### `ecfg` (org bootstrap)
 
-- `ecfg.Parse[T](opts...)` — load config from ENV
-- `ecfg.WithPrefix(prefix)` — optional env key prefix
-- `ecfg.Usage`, `ecfg.Validator` — implement on Go leaf types
-- `ecfg.Err*` — sentinel errors for `errors.Is`
+- `ecfg.LoadEnv(reg)` — initialize config values in side-registry entries from ENV
+- `ecfg.SetPrefix(prefix)` — env key prefix (default `APP`)
+- `ecfg.SetTagKey(key)` — registry custom tag key (default `ecfg`)
+- `ecfg.TagKey()` — current tag key for `LoadEnv` and `unique.AddWithCustomTag`
+- `cmd/ecfg-gen` — codegen from `AppResources` ([BuildConfig] AST)
+
+Pipeline step **Apply** → `ecfg.SetPrefix` + `ecfg.LoadEnv(registrySpecs)`.
+
+### `ecfg/config` (standalone)
+
+- `config.Parse[T](opts...)` — load config from ENV into a new struct
+- `config.WithPrefix(prefix)` — per-call env key prefix
+- `config.Err*` — sentinel errors for `errors.Is`
+
+No registry, `res`, or `unique` dependency.
 
 ### `pkg/walk` (optional)
 
-Generic struct traversal (reflect or `go/types`). No ecfg policy. Use when you need walking only; see [pkg/walk/doc.go](pkg/walk/doc.go).
-
-Exported: `Engine`, `StructWalk`, `Options`, `VisitCtx`, `FieldDesc`, `NewEngineReflect`, `NewEngineTypes`, `EngineReflect`, `SkipDescend`, `ReflectKind`.
+Generic struct traversal (reflect or `go/types`). No ecfg policy. See [pkg/walk/doc.go](pkg/walk/doc.go).
 
 ### Internal
 
@@ -23,16 +32,34 @@ Exported: `Engine`, `StructWalk`, `Options`, `VisitCtx`, `FieldDesc`, `NewEngine
 
 ## Runtime
 
+**Org (side-registry):**
+
 ```go
-cfg, err := ecfg.Parse[AppConfig](ecfg.WithPrefix("MYAPP"))
+ecfg.SetPrefix("DEMO")
+regSpecs := unique.New()
+regSpecs.AddWithCustomTag(cfg, ecfg.TagKey(), "SERVICE_ITEM")
+ecfg.LoadEnv(regSpecs)
 ```
 
-- Root struct fields need an `ecfg:"SEGMENT"` tag.
-- For **AppResources**: field is the **resource** ([BuildConfiger] or [NewResourceer]); env shape comes from `resource.BuildConfig()` spec ([item.Spec], [app.Spec], …). ecfg does not walk wire/resource fields.
-- For **direct config** (`ecfg.Parse[T]`, testdata): the root struct is the config and is walked as-is.
+**Standalone:**
+
+```go
+cfg, err := config.Parse[AppConfig](config.WithPrefix("MYAPP"))
+```
+
+- Registry entries need custom tag `ecfg` (or [SetTagKey]) with segment value (`SERVICE_ITEM`, …).
+- Standalone root struct fields need `ecfg:"SEGMENT"` tag.
 - Nested blocks are one level deep (no nested struct blocks at depth 1).
-- Leaves are either a Go named type with `Usage()` and `Validate()`, or a proto wrapper with a single `value` field and `options.v1.usage`.
+- Leaves: Go named type with `Usage()` and `Validate()`, or proto wrapper with `value` + `options.v1.usage`.
 - Every leaf must be set in the environment (non-empty).
+
+## Breaking migration (v0.21.0)
+
+| Was | Now |
+|-----|-----|
+| `ecfg.Parse[T]` | `config.Parse[T]` |
+| `ecfg.Apply(reg, &ar, …)` | `ecfg.SetPrefix` + `ecfg.LoadEnv(regSpecs)` |
+| `ecfg.Register` | removed |
 
 ## Codegen
 
@@ -41,10 +68,8 @@ go generate ./...
 ```
 
 ```bash
-go run github.com/omcrgnt/ecfg/cmd/ecfg-gen -type AppConfig -pkg ./config -prefix MYAPP
+go run github.com/omcrgnt/ecfg/cmd/ecfg-gen -type AppResources -pkg ./cmd/demo -prefix DEMO -template .env.template
 ```
-
-Writes `.env.template` (`KEY=` only) and optional `env.md` (usage tables), grouped by root ecfg block.
 
 ## Benchmarks
 
@@ -52,10 +77,8 @@ Fixtures in `internal/testdata`: root configs with **5 / 10 / 15** blocks; each 
 
 | Benchmark | What it measures |
 |-----------|------------------|
-| `BenchmarkParse_root5/10/15` | Runtime: `ecfg.Parse` (25 / 50 / 75 env vars) |
-| `BenchmarkCollectTemplate_root5/10/15` | Offline: `CollectTemplateEntries` (codegen path) |
-
-Запуск через Docker (как `task test`):
+| `BenchmarkParse_root5/10/15` | `config.Parse` (25 / 50 / 75 env vars) |
+| `BenchmarkCollectTemplate_root5/10/15` | `CollectTemplateEntries` (codegen path) |
 
 ```bash
 task bench
@@ -63,12 +86,8 @@ task bench
 
 ## Mutation testing
 
-[mutest](https://github.com/fchimpan/mutest) mutates relational operators (`==`, `!=`, `<`, …) and runs tests with an overlay. Scope: `internal/ecfgtool`, `pkg/walk`, and the root `ecfg` package (not `cmd/`, `example/`, or heavy `packages.Load` paths).
-
-Запуск через Docker (как `task test`):
-
 ```bash
 task mutest
 ```
 
-Minimum mutation score: **65%** (`-threshold 65`). After targeted tests, typical score is ~**88%**; remaining survived mutants are often `usageresolve`/`engine_types` edge paths or equivalent `sort.Slice` comparisons.
+Minimum mutation score: **65%** (`-threshold 65`).

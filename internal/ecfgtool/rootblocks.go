@@ -1,9 +1,6 @@
 package ecfgtool
 
 import (
-	"fmt"
-	"reflect"
-
 	"github.com/omcrgnt/ecfg/pkg/walk"
 )
 
@@ -81,21 +78,4 @@ func traverseRootBlocks(rootSeg, rootField string, eng walk.Engine, opts Options
 		}
 		return nil
 	})
-}
-
-func appResourcesStruct(v any) (reflect.Value, reflect.Type, error) {
-	if v == nil {
-		return reflect.Value{}, nil, fmt.Errorf("ecfg: nil app resources")
-	}
-	rv := reflect.ValueOf(v)
-	for rv.Kind() == reflect.Ptr {
-		if rv.IsNil() {
-			return reflect.Value{}, nil, fmt.Errorf("ecfg: nil app resources")
-		}
-		rv = rv.Elem()
-	}
-	if rv.Kind() != reflect.Struct {
-		return reflect.Value{}, nil, fmt.Errorf("ecfg: want struct, got %s", rv.Kind())
-	}
-	return rv, rv.Type(), nil
 }

@@ -1,16 +1,16 @@
-package ecfg
+package config
 
 import "github.com/omcrgnt/ecfg/internal/ecfgtool"
 
-type parseOption func(*parseOptions)
+type Option func(*options)
 
-type parseOptions struct {
+type options struct {
 	prefix string
 }
 
 // Parse loads *T from environment variables.
-func Parse[T any](opts ...parseOption) (*T, error) {
-	cfg := parseOptions{}
+func Parse[T any](opts ...Option) (*T, error) {
+	cfg := options{}
 	for _, o := range opts {
 		o(&cfg)
 	}
@@ -18,8 +18,8 @@ func Parse[T any](opts ...parseOption) (*T, error) {
 }
 
 // WithPrefix adds a prefix to all environment variable names.
-func WithPrefix(prefix string) parseOption {
-	return func(o *parseOptions) {
+func WithPrefix(prefix string) Option {
+	return func(o *options) {
 		o.prefix = prefix
 	}
 }

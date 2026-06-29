@@ -7,7 +7,7 @@ import (
 	"github.com/omcrgnt/ecfg/pkg/walk"
 )
 
-// Options configures Parse and ApplySeeded.
+// Options configures [Parse] and [LoadRegistry].
 type Options struct {
 	Prefix           string
 	SkipUntaggedRoot bool

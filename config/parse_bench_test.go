@@ -1,10 +1,10 @@
-package ecfg_test
+package config_test
 
 import (
 	"fmt"
 	"testing"
 
-	"github.com/omcrgnt/ecfg"
+	"github.com/omcrgnt/ecfg/config"
 	"github.com/omcrgnt/ecfg/internal/testdata"
 )
 
@@ -26,7 +26,7 @@ func benchParse[T any](b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, err := ecfg.Parse[T](ecfg.WithPrefix(benchPrefix)); err != nil {
+		if _, err := config.Parse[T](config.WithPrefix(benchPrefix)); err != nil {
 			b.Fatal(err)
 		}
 	}
